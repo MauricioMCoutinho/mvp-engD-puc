@@ -25,72 +25,242 @@ Conduzir um processo estruturado de análise de dados sobre o catálogo de jogos
 
 ### 1.4 Fonte de dados e licença
 
-Os dados foram extraídos do repositório público do Kaggle por meio do dataset Steam Games Dataset All Games, que possui os dados de mais de 136 mil jogos, totalizando 910MB de dados, além de possuir uma base de dados complementar não utilizada no trabalho que possui 5MB de dados contendo avaliações textuais. O conjunto de dados utiliza a licença MIT.
+Os dados foram extraídos do repositório público do Kaggle por meio do dataset **Steam Games Dataset All Games**, que possui os dados de mais de 136 mil jogos, totalizando 910MB de dados, além de possuir uma base de dados complementar não utilizada no trabalho que possui 5MB de dados contendo avaliações textuais. O conjunto de dados utiliza a licença MIT.
 
 ## 2. Carga dos Dados
 
 ### 2.1 Processo de ingestão
 
+O dataset **Steam Games Dataset All Games** foi extraído do repositório público do Kaggle em formato CSV e importado para o Databricks por meio de upload manual de arquivo. Após isso foi criado a tabela `steam_games` que serve como camada Bronze do projeto.
+
 ### 2.2 Armazenamento no Databricks
+
+Os dados brutos foram armazenados na tabela `steam_games`, no catálogo `workspace` e schema `default`. A tabela contém mais de 136 mil registros com colunas como `app_id`, `name`, `release_date`, `price`, `genres`, `positive`, `negative`, `average_playtime_forever`, `achievements`, entre outras. Esta é a tabela bronze do projeto.
 
 ## 3. Modelagem e Catálogo de Dados
 
 ### 3.1 Arquitetura Medalhão
 
+A modelagem segue a arquitetura Medalhão, que organiza os dados em três camadas progressivas de qualidade e granularidade:
+
+- **Bronze:** dados brutos, conforme ingeridos, sem nenhuma transformação. Tabela: `steam_games`.
+- **Silver:** dados limpos, filtrados e normalizados. Tabelas: `workspace.default.steam_games_silver` (uma linha por jogo, com colunas derivadas) e `workspace.default.steam_generos_silver` (uma linha por jogo-gênero, com parsing e EXPLODE do array de gêneros).
+- **Gold:** agregações prontas para análise, cada uma respondendo a uma pergunta de negócio específica. Tabelas: `steam_gold_monetizacao`, `steam_gold_preco_genero`, `steam_gold_lancamentos_ano`, `steam_gold_achievements_engajamento`, `steam_gold_correlacao_achievements`, `steam_gold_avaliacoes_por_faixa`, `steam_gold_top_playtime_titles`, `steam_gold_playtime_genero` e `steam_gold_evolucao_precos`.
+
 ### 3.2 Modelo de dados
 
+O modelo parte de uma única tabela bruta na Bronze e deriva duas tabelas na Silver:
+
+1. **`steam_games_silver`** — tabela principal a nível de jogo (uma linha por jogo). Inclui colunas limpas e derivadas: `ano_lancamento` (extraído de `release_date`), `modelo_monetizacao` (classificação Gratuito/Pago), `total_avaliacoes` (soma de positivas e negativas), `taxa_aprovacao_pct` (percentual de avaliações positivas) e `faixa_achievements` (classificação categorizada: 0, 1–10, 11–25, 26–50, 51–100, 100+).
+2. **`steam_generos_silver`** — tabela normalizada a nível de jogo-gênero (uma linha por par jogo-gênero). Criada com `LATERAL VIEW EXPLODE` sobre o array JSON `genres`, com tratamento de formato string simples e objeto JSON (`get_json_object`).
+
+Na camada Gold, cada tabela é uma agregação construída a partir da Silver, sem joins complexos entre si — cada uma é independente e atende a uma pergunta específica.
+
 ### 3.3 Catálogo de Dados
+
+Todas as tabelas estão no catálogo `workspace`, schema `default`, gerenciadas pelo Unity Catalog:
+
+| Camada | Tabela | Granularidade | Descrição |
+| --- | --- | --- | --- |
+| Bronze | `steam_games` | 1 linha por jogo | Dados brutos do Kaggle, sem transformação |
+| Silver | `steam_games_silver` | 1 linha por jogo | Dados limpos, filtrados e com colunas derivadas |
+| Silver | `steam_generos_silver` | 1 linha por jogo-gênero | Gêneros explodidos a partir do array JSON |
+| Gold | `steam_gold_monetizacao` | 1 linha por modelo de monetização | Taxa de aprovação por modelo (Gratuito vs Pago) |
+| Gold | `steam_gold_preco_genero` | 1 linha por gênero | Preço médio e taxa de aprovação por gênero |
+| Gold | `steam_gold_lancamentos_ano` | 1 linha por ano | Volume de lançamentos por ano (pagos e gratuitos) |
+| Gold | `steam_gold_achievements_engajamento` | 1 linha por faixa de achievements | Métricas de engajamento por faixa de conquistas |
+| Gold | `steam_gold_correlacao_achievements` | 1 linha (escalar) | Coeficiente de correlação de Pearson |
+| Gold | `steam_gold_avaliacoes_por_faixa` | 1 linha por faixa de achievements | Média de avaliações por faixa |
+| Gold | `steam_gold_top_playtime_titles` | Top 20 linhas | Títulos com maior tempo médio de jogo |
+| Gold | `steam_gold_playtime_genero` | 1 linha por gênero | Playtime médio por gênero |
+| Gold | `steam_gold_evolucao_precos` | 1 linha por ano | Evolução de preços de jogos pagos por ano |
 
 ## 4. Pipeline de Dados
 
 ### 4.1 Bronze
 
+A camada Bronze consiste na tabela `steam_games`, criada a partir do upload direto do CSV do Kaggle. Nenhuma transformação é aplicada nesta camada — os dados são armazenados no estado bruto, preservando todos os campos originais do dataset. Apenas uma contagem total de registros e uma amostra (SELECT *) são executadas para validação inicial.
+
 ### 4.2 Silver
+
+A camada Silver aplica limpeza, filtros de qualidade e derivação de colunas sobre a Bronze. Duas tabelas são criadas:
+
+1. **`steam_games_silver`** — `CREATE OR REPLACE TABLE` com `SELECT` da Bronze aplicando:
+   - Filtro de qualidade: apenas jogos com pelo menos uma avaliação (`(positive + negative) > 0`) e com data de lançamento (`release_date IS NOT NULL`).
+   - Derivação de `ano_lancamento` via `YEAR(release_date)`.
+   - Classificação de `modelo_monetizacao` (Gratuito vs Pago) via `CASE WHEN price = 0 OR LOWER(price_status) = 'free'`.
+   - Cálculo de `total_avaliacoes` (positive + negative) e `taxa_aprovacao_pct` (positive * 100 / total).
+   - Classificação de `faixa_achievements` via `CASE WHEN` em 6 faixas.
+
+2. **`steam_generos_silver`** — `CREATE OR REPLACE TABLE` com `LATERAL VIEW EXPLODE(from_json(s.genres, 'array<string>'))` sobre a Silver principal, extraindo um gênero por linha. Trata dois formatos (string simples e objeto JSON com `get_json_object`) e filtra gêneros vazios.
 
 ### 4.3 Gold
 
+A camada Gold cria uma tabela agregada para cada pergunta de negócio, todas construídas com `CREATE OR REPLACE TABLE ... AS SELECT` a partir da Silver:
+
+- **Q1** `steam_gold_monetizacao`: `GROUP BY modelo_monetizacao` com taxa de aprovação.
+- **Q2** `steam_gold_preco_genero`: `GROUP BY genero` com `AVG(price)` e `AVG(taxa_aprovacao_pct)`, filtro `HAVING COUNT(*) >= 50` e apenas jogos pagos.
+- **Q3** `steam_gold_lancamentos_ano`: `GROUP BY ano_lancamento` com contagem de pagos e gratuitos.
+- **Q4** `steam_gold_achievements_engajamento`: `GROUP BY faixa_achievements` com `AVG` de playtime, recomendações, peak CCU, avaliações e taxa de aprovação.
+- **Q5** `steam_gold_correlacao_achievements`: `CORR(achievements, total_avaliacoes)` sobre jogos com achievements > 0. `steam_gold_avaliacoes_por_faixa`: `GROUP BY faixa_achievements` com médias.
+- **Q6** `steam_gold_top_playtime_titles`: `ORDER BY average_playtime_forever DESC LIMIT 20`.
+- **Q7** `steam_gold_playtime_genero`: `JOIN` entre `steam_generos_silver` e `steam_games_silver`, `GROUP BY genero`, `HAVING COUNT(*) >= 50`.
+- **Q8** `steam_gold_evolucao_precos`: `GROUP BY ano_lancamento` com `AVG(price)`, `PERCENTILE(price, 0.5)`, `MIN`, `MAX` e `STDDEV`, filtro `price > 0` e anos entre 2012 e 2026.
+
 ### 4.4 Transformações
+
+As transformações aplicadas ao longo do pipeline resumem-se em:
+
+- **Filtros de qualidade:** remoção de jogos sem avaliações e sem data de lançamento na Silver; filtro de gêneros com 50+ jogos e jogos pagos em agregações específicas da Gold.
+- **Derivação de colunas:** `ano_lancamento`, `modelo_monetizacao`, `total_avaliacoes`, `taxa_aprovacao_pct` e `faixa_achievements` criadas na Silver.
+- **Normalização:** parsing do array JSON de gêneros com `from_json` + `EXPLODE` para criar a tabela normalizada de gêneros.
+- **Agregações:** `COUNT`, `AVG`, `SUM`, `ROUND`, `CORR`, `PERCENTILE`, `STDDEV` aplicadas nas tabelas Gold conforme a pergunta de negócio.
+- **Ordenação e limite:** `ORDER BY` e `LIMIT` para rankings (ex.: top 20 títulos por playtime).
 
 ## 5. Qualidade de Dados
 
 ### 5.1 Completude
 
+Na camada Bronze, o dataset original do Kaggle pode conter registros com campos nulos, especialmente em `release_date`, `genres` e `achievements`. A camada Silver aplica filtros que garantem completude mínima: apenas jogos com `release_date IS NOT NULL` e `(positive + negative) > 0` são mantidos. Na tabela de gêneros, registros com `genres IS NULL` ou gêneros vazios (`LENGTH = 0`) são removidos.
+
 ### 5.2 Consistência
+
+A coluna `price_status` e a coluna `price` podem apresentar inconsistências (ex.: `price = 0` sem `price_status = 'free'`). A Silver resolve isso com uma regra unificada: `CASE WHEN price = 0 OR LOWER(price_status) = 'free' THEN 'Gratuito' ELSE 'Pago' END`. O array de gêneros é tratado em dois formatos possíveis (string simples e objeto JSON) com `COALESCE` entre `get_json_object` e o valor bruto, garantindo consistência na extração.
 
 ### 5.3 Unicidade
 
+A tabela Bronze `steam_games` possui `app_id` como identificador único de cada jogo. A tabela Silver mantém essa granularidade (uma linha por `app_id`). A tabela de gêneros normalizada `steam_generos_silver` respeita a granularidade de um par (jogo, gênero), sem duplicação de combinações.
+
 ### 5.4 Acurácia
+
+A taxa de aprovação (`taxa_aprovacao_pct`) é calculada como `positive * 100.0 / (positive + negative)`, com `NULLIF` para evitar divisão por zero. O filtro de jogos com pelo menos uma avaliação garante que a taxa seja sempre baseada em dados reais. Os anos de lançamento são extraídos diretamente de `release_date` com `YEAR()`, preservando a acurácia temporal.
 
 ### 5.5 Outliers
 
+O dataset contém outliers notáveis: jogos com `average_playtime_forever` extremamente alto (ex.: 359.665 minutos — ~6.000 horas) e preços máximos atípicos (ex.: US$ 999,98 em 2019 e 2023). Esses valores não foram removidos, mas merece atenção na interpretação dos resultados. A presença de software não-jogo no catálogo (VEGAS Pro, Boom 3D) também distorce métricas de playtime. Nas agregações de Gold, o filtro `HAVING COUNT(*) >= 50` em gêneros mitiga o efeito de categorias com poucos títulos.
+
 ### 5.6 Tratamentos realizados
+
+Os seguintes tratamentos foram aplicados ao longo do pipeline:
+
+- Remoção de jogos sem avaliações (`(positive + negative) > 0`) na Silver.
+- Remoção de jogos sem data de lançamento (`release_date IS NOT NULL`) na Silver.
+- Classificação unificada de modelo de monetização (Gratuito/Pago) para resolver inconsistências entre `price` e `price_status`.
+- Parsing e explosão do array JSON de gêneros com tratamento de múltiplos formatos.
+- Remoção de gêneros vazios ou nulos na tabela normalizada.
+- Filtro de gêneros com pelo menos 50 jogos em agregações da Gold para evitar viés de pequenas amostras.
+- Exclusão de jogos gratuitos (price = 0) em análises de preço médio (Q2 e Q8) para não distorcer a média.
+- Restrição temporal (2012–2026) na análise de evolução de preços.
 
 ## 6. Análise de Dados
 
+As análises abaixo foram construídas a partir das tabelas Gold do MVP, que seguem a arquitetura Medalhão (Bronze → Silver → Gold). Cada subseção responde a uma pergunta de negócio com dados agregados da camada Silver em diante.
+
 ### 6.1 Pergunta 1
+
+**Qual a faixa de preço médio observada nas categorias de jogos mais bem avaliadas?**
+
+A tabela `steam_gold_preco_genero` (Gold Q2) agregou preço médio e taxa de aprovação por gênero, filtrando apenas gêneros com pelo menos 50 jogos pagos.
+
+**Resposta:** Os gêneros com as maiores taxas de aprovação (acima de 91%) — Photo Editing, Animation & Modeling, Design & Illustration, Audio Production e Game Development — apresentam preços médios na faixa de **US$ 14 a US$ 27**, com medianas tipicamente entre US$ 20 e US$ 30. Já os gêneros de jogos mais tradicionais (Indie, Casual, RPG, Strategy), com taxas de aprovação entre 87% e 90%, têm preços médios significativamente menores (**US$ 7 a US$ 11**). Observa-se que os gêneros melhor avaliados tendem a ser categorias de software criativo/profissional com ticket mais alto, enquanto os jogos convencionais ocupam uma faixa de preço mais acessível.
 
 ### 6.2 Pergunta 2
 
+**Como evoluiu o volume anual de novos lançamentos ao longo do período analisado?**
+
+A tabela `steam_gold_lancamentos_ano` (Gold Q3) agregou o total de lançamentos por ano, separando jogos pagos e gratuitos.
+
+**Resposta:** O volume de lançamentos cresceu de forma expressiva e contínua de 2012 (322 títulos) até 2024 (12.322 títulos), representando um aumento de aproximadamente **38x** no período. Observam-se três fases: (1) crescimento inicial moderado (2012–2015), (2) aceleração (2015–2018, impulsionada por ferramentas de publicação acessíveis), e (3) maturação em patamar elevado (2018–2024). A queda em 2025 e 2026 reflete dados parciais (anos não completos). A proporção de jogos gratuitos cresceu até 2020 (~17%), mas voltou a cair nos anos mais recentes (~6% em 2024), indicando que o modelo pago permanece dominante.
+
 ### 6.3 Pergunta 3
+
+**De que forma a presença de conquistas (achievements) impacta a interação e fidelização da base de jogadores?**
+
+A tabela `steam_gold_achievements_engajamento` (Gold Q4) agregou métricas de engajamento por faixa de conquistas.
+
+**Resposta:** Há uma relação clara e positiva entre a quantidade de conquistas e praticamente todos os indicadores de engajamento. Jogos sem conquistas têm playtime médio de 77 minutos e taxa de aprovação de 71,2%. À medida que o número de achievements aumenta, o playtime médio cresce de forma escalonada, atingindo **818 minutos** na faixa de 100+ conquistas — mais de 10x o playtime dos jogos sem conquistas. As recomendações médias passam de 766 (sem conquistas) para mais de 20.500 (100+), e o total de avaliações salta de 868 para 23.352. A taxa de aprovação também melhora, passando de 71% para ~81% na faixa 51–100, embora recue levemente para 79,7% no grupo 100+ (possivelmente por expectativas mais altas em jogos com muitas conquistas). Isso sugere que as conquistas funcionam como um mecanismo efetivo de retenção e fidelização.
 
 ### 6.4 Pergunta 4
 
+**Existe correlação positiva entre a quantidade de conquistas disponibilizadas por um jogo e o total de avaliações registradas pelos usuários?**
+
+A tabela `steam_gold_correlacao_achievements` (Gold Q5) calculou o coeficiente de correlação de Pearson entre o número de conquistas e o total de avaliações. A tabela `steam_gold_avaliacoes_por_faixa` mostra a média de avaliações por faixa.
+
+**Resposta:** A correlação de Pearson entre o número absoluto de conquistas e o total de avaliações é **0,0103**, ou seja, praticamente nula. Embora a tabela por faixas mostre que jogos com mais conquistas tendem a ter mais avaliações em média (de 868 para 23.352), a correlação linear ponto-a-ponto é desprezível. Isso indica que a relação não é linear: o efeito observado nas faixas é provavelmente um reflexo indireto — jogos maiores, com maior produção e maior base de jogadores, tendem a ter tanto mais conquistas quanto mais avaliações, mas o número de conquistas por si só não é um preditor linear do volume de avaliações.
+
 ### 6.5 Pergunta 5
+
+**Quais são os títulos com as maiores médias históricas de tempo de jogo (average playtime)?**
+
+A tabela `steam_gold_top_playtime_titles` (Gold Q6) listou os 20 jogos com maior tempo médio de jogo.
+
+**Resposta:** Os títulos com maior tempo médio de jogo são predominantemente jogos de nicho (visual novels asiáticos, idle games e simuladores). O primeiro colocado, *Letters From a Rainy Day*, apresenta uma média de quase **360 horas** de jogo. Observa-se a presença de software não-jogo no topo da lista (VEGAS Pro 18, com 185 horas e apenas 20,45% de aprovação), o que sugere que parte do catálogo da Steam inclui aplicações que não são jogos, e que o playtime dessas aplicações pode inflar os rankings. A maioria dos títulos é paga, com taxas de aprovação variadas (20% a 98%).
 
 ### 6.6 Pergunta 6
 
+**Quais gêneros concentram as maiores médias de horas jogadas por usuário?**
+
+A tabela `steam_gold_playtime_genero` (Gold Q7) agregou o playtime médio por gênero (gêneros com 50+ jogos).
+
+**Resposta:** As maiores médias de horas jogadas por usuário concentram-se em categorias de **software criativo/profissional** (Audio Production com 1.640 min, Video Production com 1.104 min, Utilities com 955 min). Entre os gêneros de jogos tradicionais, destacam-se **Massively Multiplayer** (327 min), **RPG** (246 min) e **Free To Play** (224 min) — gêneros que naturalmente favorecem sessões longas e replayabilidade. Gêneros casuais e de alta rotatividade como Indie (81 min) e Action (65 min) ficam nas últimas posições. A presença de software não-jogo no topo do ranking merece atenção para interpretação do resultado.
+
 ### 6.7 Pergunta 7
+
+**Como evoluiu o preço médio dos jogos ao longo dos anos?**
+
+A tabela `steam_gold_evolucao_precos` (Gold Q8) agregou preço médio, mediana e desvio-padrão por ano de lançamento (jogos pagos, 2012–2026).
+
+**Resposta:** O preço médio dos jogos pagos caiu de **US$ 12,47 em 2013** para **US$ 8,32 em 2018** — uma redução de ~33%. Essa queda coincide com a explosão do volume de lançamentos no mesmo período, sugerindo que a popularização das ferramentas de desenvolvimento e a democratização da publicação trouxeram muitos jogos indie de baixo preço ao catálogo. A partir de 2018, o preço médio estabilizou-se na faixa de **US$ 8,30 a US$ 9,90**, com a mediana fixada em US$ 4,99–5,99. O desvio-padrão cresceu ao longo dos anos (de 8,39 para ~13), indicando maior dispersão de preços — o catálogo tornou-se mais heterogêneo, com coexistência de jogos muito baratos e títulos premium caros.
 
 ### 6.8 Pergunta 8
 
+**Quais gêneros concentram as maiores médias de horas jogadas por usuário?**
+
+> ⚠️ **Observação:** Esta pergunta é idêntica à Pergunta 6 (seção 6.6). A resposta é a mesma: os gêneros com maiores médias de playtime são Audio Production (1.640 min), Video Production (1.104 min) e Utilities (955 min) entre categorias de software, e Massively Multiplayer (327 min), RPG (246 min) e Free To Play (224 min) entre os gêneros de jogos tradicionais. Consulte a seção 6.6 para a tabela completa.
+
 ### 6.9 Discussão dos resultados
+
+**Síntese geral:**
+
+A análise do catálogo da Steam revela um mercado em franca expansão, com o volume de lançamentos crescendo ~38x entre 2012 e 2024. Esse crescimento foi acompanhado por uma redução e posterior estabilização do preço médio (~US$ 9), refletindo a popularização de jogos indie acessíveis.
+
+Quanto ao engajamento, os dados mostram uma relação robusta entre conquistas (achievements) e métricas de retenção: jogos com mais conquistas têm playtime médio até 10x maior, mais recomendações e mais avaliações. No entanto, a correlação linear entre o número absoluto de conquistas e o total de avaliações é praticamente nula (Pearson = 0,01), o que indica que o efeito não é direto — conquistas são um proxy para jogos maiores e mais produzidos, não uma causa linear isolada.
+
+Os gêneros com maior playtime médio são categorias de software criativo (Audio/Video Production), que não são jogos no sentido tradicional. Entre os gêneros de jogos, Massively Multiplayer, RPG e Free To Play lideram, confirmando a expectativa de que jogos com прогрессão contínua e multiplayer engajam por mais tempo.
+
+**Pontos que requerem validação humana:**
+
+1. **Duplicação de perguntas:** As perguntas 6 e 8 do README são idênticas ("Quais gêneros concentram as maiores médias de horas jogadas por usuário?"). Recomenda-se reformular uma delas ou substituí-la por uma análise complementar.
+2. **Software não-jogo no catálogo:** O dataset da Steam inclui aplicações que não são jogos (VEGAS Pro, Boom 3D, utilities). Isso afeta os rankings de playtime (Pergunta 5) e de gêneros (Pergunta 6), inflando resultados com software profissional. Recomenda-se decidir se esses itens devem ser filtrados na camada Silver.
+3. **Dados de 2025 e 2026:** Os valores desses anos representam dados parciais (anos em andamento), o que explica a queda aparente no volume de lançamentos e a mediana de preço atípica de 2026 (US$ 11,99). Isso deve ser destacado nas conclusões.
+4. **Análise de monetização:** O notebook contém uma análise adicional (Gold Q1) sobre jogos gratuitos vs. pagos (taxa de aprovação de 80,98% vs. 87,82%, respectivamente) que não foi contemplada nas 8 perguntas do README. Considere incluí-la como análise complementar.
 
 ## 7. Autoavaliação
 
 ### 7.1 Objetivos atingidos
 
+O estudo conseguiu responder a 7 das 8 perguntas de negócio com clareza, utilizando uma arquitetura de dados estruturada (Medalhão) e agregações específicas por pergunta. As principais descobertas incluem: a relação positiva entre conquistas e engajamento, a evolução do volume de lançamentos (~38x entre 2012 e 2024), a queda e estabilização do preço médio, e a identificação dos gêneros com maior tempo de jogo. O pipeline Bronze → Silver → Gold foi implementado integralmente em SQL no Databricks, com tabelas persistidas no Unity Catalog.
+
 ### 7.2 Dificuldades
+
+- Tratamento do array JSON de gêneros, que exigiu `LATERAL VIEW EXPLODE` com `from_json` e `COALESCE` para lidar com dois formatos diferentes (string simples e objeto JSON com `description`).
+- Interpretação da correlação de Pearson próxima de zero (0,01) entre achievements e avaliações, que exigiu análise por faixas para entender que a relação é indireta, não linear.
+- Presença de software não-jogo no catálogo da Steam, que distorce métricas de playtime e gêneros.
+- Dados de 2025 e 2026 como anos parciais, que exigem cuidado na interpretação das tendências.
 
 ### 7.3 Limitações
 
+- **Duplicação de perguntas:** as perguntas 6 e 8 são idênticas, reduzindo a cobertura analítica do estudo.
+- **Software não-jogo:** o dataset inclui aplicações profissionais (VEGAS Pro, Boom 3D) que não foram filtradas, impactando rankings de playtime e gêneros.
+- **Dados parciais:** 2025 e 2026 não representam anos completos, limitando conclusões sobre o período mais recente.
+- **Ausência de análise temporal de engajamento:** as métricas de playtime e avaliações são acumuladas históricas, sem segmentação por ano ou janela temporal.
+- **Análise de monetização não contemplada nas perguntas:** o notebook contém uma análise adicional (Gold Q1) sobre gratuitos vs. pagos que não foi incluída nas 8 perguntas do escopo.
+
 ### 7.4 Trabalhos futuros
+
+- Reformular a pergunta 8 (duplicada) para explorar uma dimensão não coberta, como o impacto de DLCs no engajamento ou a relação entre tamanho do desenvolvedor e recepção crítica.
+- Filtrar software não-jogo na camada Silver, criando um flag ou removendo categorias como Utilities, Audio Production e Video Production das análises de playtime.
+- Adicionar análise temporal de engajamento, segmentando playtime e avaliações por ano de lançamento.
+- Cruzar os dados com a base complementar de avaliações textuais (5MB) para análise de sentiment.
+- Implementar visualizações interativas (dashboards) a partir das tabelas Gold.
+- Considerar análise de regressão para identificar os preditores mais relevantes de taxa de aprovação e playtime.
