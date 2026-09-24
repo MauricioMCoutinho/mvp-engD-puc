@@ -57,49 +57,33 @@ Na camada Gold, cada tabela é construída a partir das Silvers, sem joins compl
 
 ### 4.1 Bronze
 
-A camada Bronze consiste na tabela `steam_games`, criada a partir do upload direto do CSV do Kaggle. Nenhuma transformação é aplicada nesta camada - os dados são armazenados no estado bruto, preservando todos os campos originais do dataset. Apenas uma contagem total de registros e uma amostra (SELECT *) são executadas para validação inicial.
+A camada Bronze consiste na tabela `steam_games`, criada a partir do upload direto do CSV do Kaggle. Os dados são armazenados no estado bruto, sem nenhuma transformação. Apenas uma contagem total de registros e uma consulta de verificação (SELECT *) são executadas para verificação inicial.
 
 ### 4.2 Silver
 
 A camada Silver aplica limpeza, filtros de qualidade e derivação de colunas sobre a Bronze. Duas tabelas são criadas:
 
-1. **`steam_games_silver`** - `CREATE OR REPLACE TABLE` com `SELECT` da Bronze aplicando:
-   - Filtro de qualidade: apenas jogos com pelo menos uma avaliação (`(positive + negative) > 0`) e com data de lançamento (`release_date IS NOT NULL`).
-   - Derivação de `ano_lancamento` via `YEAR(release_date)`.
-   - Classificação de `modelo_monetizacao` (Gratuito vs Pago) via `CASE WHEN price = 0 OR LOWER(price_status) = 'free'`.
-   - Cálculo de `total_avaliacoes` (positive + negative) e `taxa_aprovacao_pct` (positive * 100 / total).
-   - Classificação de `faixa_achievements` via `CASE WHEN` em 6 faixas.
-
-2. **`steam_generos_silver`** - `CREATE OR REPLACE TABLE` com `LATERAL VIEW EXPLODE(from_json(s.genres, 'array<string>'))` sobre a Silver principal, extraindo um gênero por linha. Trata dois formatos (string simples e objeto JSON com `get_json_object`) e filtra gêneros vazios.
+1. **`steam_games_silver`** - onde é aplicado um filtro para manter apenas jogos com pelo menos uma avaliação e com data de lançamento. A partir dessa base filtrada, são derivadas novas colunas: `ano_lancamento` (extraído do `release_date`), `modelo_monetizacao` (classificação entre Gratuito e Pago), `total_avaliacoes` (soma de avaliações positivas e negativas), `taxa_aprovacao_pct` (percentual de avaliações positivas) e `faixa_achievements` (classificação da quantidade de conquistas em 6 faixas: 0, 1–10, 11–25, 26–50, 51–100 e 100+).
+2. **`steam_generos_silver`** - onde o array de gêneros de cada jogo é explodido em linhas individuais (uma linha por par jogo-gênero), com tratamento de dois formatos possíveis (string simples e objeto JSON) e remoção de gêneros vazios.
 
 ### 4.3 Gold
 
-A camada Gold cria uma tabela agregada para cada pergunta de negócio, todas construídas com `CREATE OR REPLACE TABLE ... AS SELECT` a partir da Silver:
+A camada Gold cria uma tabela agregada para cada pergunta de negócio, todas construídas a partir da Silver:
 
-- **Q1** `steam_gold_monetizacao`: `GROUP BY modelo_monetizacao` com taxa de aprovação.
-- **Q2** `steam_gold_preco_genero`: `GROUP BY genero` com `AVG(price)` e `AVG(taxa_aprovacao_pct)`, filtro `HAVING COUNT(*) >= 50` e apenas jogos pagos.
-- **Q3** `steam_gold_lancamentos_ano`: `GROUP BY ano_lancamento` com contagem de pagos e gratuitos.
-- **Q4** `steam_gold_achievements_engajamento`: `GROUP BY faixa_achievements` com `AVG` de playtime, recomendações, peak CCU, avaliações e taxa de aprovação.
-- **Q5** `steam_gold_correlacao_achievements`: `CORR(achievements, total_avaliacoes)` sobre jogos com achievements > 0. `steam_gold_avaliacoes_por_faixa`: `GROUP BY faixa_achievements` com médias.
-- **Q6** `steam_gold_top_playtime_titles`: `ORDER BY average_playtime_forever DESC LIMIT 20`.
-- **Q7** `steam_gold_playtime_genero`: `JOIN` entre `steam_generos_silver` e `steam_games_silver`, `GROUP BY genero`, `HAVING COUNT(*) >= 50`.
-- **Q8** `steam_gold_evolucao_precos`: `GROUP BY ano_lancamento` com `AVG(price)`, `PERCENTILE(price, 0.5)`, `MIN`, `MAX` e `STDDEV`, filtro `price > 0` e anos entre 2012 e 2026.
-
-### 4.4 Transformações
-
-As transformações aplicadas ao longo do pipeline resumem-se em:
-
-- **Filtros de qualidade:** remoção de jogos sem avaliações e sem data de lançamento na Silver; filtro de gêneros com 50+ jogos e jogos pagos em agregações específicas da Gold.
-- **Derivação de colunas:** `ano_lancamento`, `modelo_monetizacao`, `total_avaliacoes`, `taxa_aprovacao_pct` e `faixa_achievements` criadas na Silver.
-- **Normalização:** parsing do array JSON de gêneros com `from_json` + `EXPLODE` para criar a tabela normalizada de gêneros.
-- **Agregações:** `COUNT`, `AVG`, `SUM`, `ROUND`, `CORR`, `PERCENTILE`, `STDDEV` aplicadas nas tabelas Gold conforme a pergunta de negócio.
-- **Ordenação e limite:** `ORDER BY` e `LIMIT` para rankings (ex.: top 20 títulos por quantidade de horas jogadas).
+1. **`steam_gold_monetizacao`** - onde a taxa de aprovação é agregada por modelo de monetização (Gratuito vs Pago).
+2. **`steam_gold_preco_genero`** - onde o preço médio e a taxa de aprovação são agregados por gênero, considerando apenas gêneros com pelo menos 50 jogos pagos.
+3. **`steam_gold_lancamentos_ano`** - onde o total de lançamentos é contabilizado por ano, separando jogos pagos e gratuitos.
+4. **`steam_gold_achievements_engajamento`** - onde as métricas de engajamento (quantidade média de horas jogadas, recomendações, peak CCU, total de avaliações e taxa de aprovação) são agregadas por faixa de conquistas.
+5. **`steam_gold_correlacao_achievements`** e **`steam_gold_avaliacoes_por_faixa`** - a primeira calcula o coeficiente de correlação de Pearson entre o número de conquistas e o total de avaliações; a segunda mostra a média de avaliações por faixa de conquistas.
+6. **`steam_gold_top_playtime_titles`** - onde são listados os 20 jogos com maior tempo médio de jogo.
+7. **`steam_gold_playtime_genero`** - onde a quantidade média de horas jogadas é agregada por gênero, com filtro de gêneros com pelo menos 50 jogos.
+8. **`steam_gold_evolucao_precos`** - onde o preço médio, a mediana e o desvio-padrão são calculados por ano de lançamento, considerando apenas jogos pagos entre 2012 e 2026.
 
 ## 5. Qualidade de Dados
 
 ### 5.1 Completude
 
-Na camada Bronze, o dataset original do Kaggle pode conter registros com campos nulos, especialmente em `release_date`, `genres` e `achievements`. A camada Silver aplica filtros que garantem completude mínima: apenas jogos com `release_date IS NOT NULL` e `(positive + negative) > 0` são mantidos. Na tabela de gêneros, registros com `genres IS NULL` ou gêneros vazios (`LENGTH = 0`) são removidos.
+Na camada Bronze, o dataset original do Kaggle pode conter registros com campos nulos, especialmente em `release_date`, `genres` e `achievements`. A camada Silver aplica filtros que garantem completude mínima: apenas jogos com `release_date IS NOT NULL` são mantidos. Na tabela de gêneros, registros com `genres IS NULL` ou gêneros vazios (`LENGTH = 0`) são removidos.
 
 ### 5.2 Consistência
 
@@ -217,6 +201,7 @@ O estudo conseguiu responder as 8 perguntas com clareza, utilizando uma arquitet
 ### 7.2 Dificuldades
 
 - Tratamento do array JSON de gêneros, que exigiu `LATERAL VIEW EXPLODE` com `from_json` e `COALESCE` para lidar com dois formatos diferentes (string simples e objeto JSON com `description`).
+- Identificação de gêneros vazios (`LENGTH = 0`) após a explosão do array, que geravam linhas inválidas na tabela `steam_generos_silver` e precisaram ser filtrados.
 - Interpretação da correlação de Pearson próxima de zero (0,01) entre achievements e avaliações, que exigiu análise por faixas para entender que a relação é indireta, não linear.
 - Presença de softwares (sem serem jogos) no catálogo da Steam, que altera métricas de quantidade de horas e gêneros.
 - Dados de 2026 como ano parcial, que exige cuidado na interpretação das tendências.
