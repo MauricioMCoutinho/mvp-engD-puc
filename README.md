@@ -43,34 +43,27 @@ Os dados brutos foram armazenados na tabela `steam_games`, no catálogo `workspa
 
 A modelagem segue a arquitetura Medalhão, que organiza os dados em três camadas progressivas de qualidade e granularidade:
 
-- **Bronze:** dados brutos, conforme ingeridos, sem nenhuma transformação. Tabela: `workspace.default.steam_games`.
-- **Silver:** dados limpos, filtrados e normalizados. Tabelas: `workspace.default.steam_games_silver` (uma linha por jogo, com colunas derivadas) e `workspace.default.steam_generos_silver` (uma linha por jogo-gênero, com parsing e EXPLODE do array de gêneros).
-- **Gold:** agregações prontas para análise, cada uma respondendo a uma pergunta de negócio específica. Tabelas: `steam_gold_monetizacao`, `steam_gold_preco_genero`, `steam_gold_lancamentos_ano`, `steam_gold_achievements_engajamento`, `steam_gold_correlacao_achievements`, `steam_gold_avaliacoes_por_faixa`, `steam_gold_top_playtime_titles`, `steam_gold_playtime_genero` e `steam_gold_evolucao_precos`.
+- **Bronze:** dados brutos, Tabela: `steam_games`.
+- **Silver:** dados limpos, filtrados e normalizados. Tabela `steam_games_silver` (uma linha por jogo, com colunas derivadas) e `steam_generos_silver` (uma linha por jogo-gênero, com parsing e EXPLODE do array de gêneros).
+- **Gold:** agregações prontas para análise, cada uma respondendo a uma pergunta de negócio específica: `steam_gold_monetizacao`, `steam_gold_preco_genero`, `steam_gold_lancamentos_ano`, `steam_gold_achievements_engajamento`, `steam_gold_correlacao_achievements`, `steam_gold_avaliacoes_por_faixa`, `steam_gold_top_playtime_titles`, `steam_gold_playtime_genero` e `steam_gold_evolucao_precos`.
 
 ### 3.2 Modelo de dados
 
-O modelo parte de uma única tabela bruta na Bronze e deriva duas tabelas na Silver:
+O modelo parte da tabela `steam_games` na Bronze e dá origem a duas tabelas na Silver. A primeira, `steam_games_silver`, é a tabela principal e inclui as colunas limpas e derivadas: `ano_lancamento` (extraído de `release_date`), `modelo_monetizacao` (classificação Gratuito/Pago), `total_avaliacoes` (soma de positivas e negativas), `taxa_aprovacao_pct` (percentual de avaliações positivas) e `faixa_achievements` (classificação categorizada em 0, 1–10, 11–25, 26–50, 51–100 e 100+). A segunda, `steam_generos_silver`, é uma tabela normalizada a nível de jogo-gênero (uma linha por par jogo-gênero), criada com `LATERAL VIEW EXPLODE` sobre o array JSON `genres`, com tratamento de formato string simples e objeto JSON via `get_json_object`.
 
-1. **`steam_games_silver`** — tabela principal a nível de jogo (uma linha por jogo). Inclui colunas limpas e derivadas: `ano_lancamento` (extraído de `release_date`), `modelo_monetizacao` (classificação Gratuito/Pago), `total_avaliacoes` (soma de positivas e negativas), `taxa_aprovacao_pct` (percentual de avaliações positivas) e `faixa_achievements` (classificação categorizada: 0, 1–10, 11–25, 26–50, 51–100, 100+).
-2. **`steam_generos_silver`** — tabela normalizada a nível de jogo-gênero (uma linha por par jogo-gênero). Criada com `LATERAL VIEW EXPLODE` sobre o array JSON `genres`, com tratamento de formato string simples e objeto JSON (`get_json_object`).
-
-Na camada Gold, cada tabela é uma agregação construída a partir da Silver, sem joins complexos entre si — cada uma é independente e atende a uma pergunta específica.
-
-### 3.3 Catálogo de Dados
-
-Todas as tabelas estão no catálogo `workspace`, schema `default`, gerenciadas pelo Unity Catalog. A camada Bronze possui a tabela `steam_games` (dados brutos). A Silver possui `steam_games_silver` (uma linha por jogo, com colunas derivadas) e `steam_generos_silver` (uma linha por jogo-gênero). A Gold possui nove tabelas, cada uma atendendo a uma pergunta de negócio: `steam_gold_monetizacao`, `steam_gold_preco_genero`, `steam_gold_lancamentos_ano`, `steam_gold_achievements_engajamento`, `steam_gold_correlacao_achievements`, `steam_gold_avaliacoes_por_faixa`, `steam_gold_top_playtime_titles`, `steam_gold_playtime_genero` e `steam_gold_evolucao_precos`.
+Na camada Gold, cada tabela é construída a partir das Silvers, sem joins complexos entre si. Cada uma é independente e atende a uma das perguntas propostas.
 
 ## 4. Pipeline de Dados
 
 ### 4.1 Bronze
 
-A camada Bronze consiste na tabela `workspace.default.steam_games`, criada a partir do upload direto do CSV do Kaggle. Nenhuma transformação é aplicada nesta camada — os dados são armazenados no estado bruto, preservando todos os campos originais do dataset. Apenas uma contagem total de registros e uma amostra (SELECT *) são executadas para validação inicial.
+A camada Bronze consiste na tabela `steam_games`, criada a partir do upload direto do CSV do Kaggle. Nenhuma transformação é aplicada nesta camada - os dados são armazenados no estado bruto, preservando todos os campos originais do dataset. Apenas uma contagem total de registros e uma amostra (SELECT *) são executadas para validação inicial.
 
 ### 4.2 Silver
 
 A camada Silver aplica limpeza, filtros de qualidade e derivação de colunas sobre a Bronze. Duas tabelas são criadas:
 
-1. **`steam_games_silver`** — `CREATE OR REPLACE TABLE` com `SELECT` da Bronze aplicando:
+1. **`steam_games_silver`** - `CREATE OR REPLACE TABLE` com `SELECT` da Bronze aplicando:
    - Filtro de qualidade: apenas jogos com pelo menos uma avaliação (`(positive + negative) > 0`) e com data de lançamento (`release_date IS NOT NULL`).
    - Derivação de `ano_lancamento` via `YEAR(release_date)`.
    - Classificação de `modelo_monetizacao` (Gratuito vs Pago) via `CASE WHEN price = 0 OR LOWER(price_status) = 'free'`.
