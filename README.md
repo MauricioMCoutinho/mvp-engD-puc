@@ -62,7 +62,7 @@ A camada Bronze consiste na tabela `steam_games`, criada a partir do upload dire
 
 A camada Silver aplica limpeza, filtros de qualidade e derivação de colunas sobre a Bronze. Duas tabelas são criadas:
 
-1. **`steam_games_silver`** - onde é aplicado um filtro para manter apenas jogos com pelo menos uma avaliação, com data de lançamento, que não sejam aplicativos de software e que não possuam o gênero Free To Play (este gênero está errado noa dataset) . A partir dessa base filtrada, são derivadas novas colunas: `ano_lancamento` (extraído do `release_date`), `modelo_monetizacao` (classificação entre Gratuito e Pago), `total_avaliacoes` (soma de avaliações positivas e negativas), `taxa_aprovacao_pct` (percentual de avaliações positivas) e `faixa_achievements` (classificação da quantidade de conquistas em 6 faixas: 0, 1–10, 11–25, 26–50, 51–100 e 100+).
+1. **`steam_games_silver`** - onde é aplicado um filtro para manter apenas jogos com pelo menos uma avaliação, com data de lançamento, que não sejam aplicativos de software e que não possuam o gênero Free To Play (este gênero está errado no dataset). A partir dessa base filtrada, são derivadas novas colunas: `ano_lancamento` (extraído do `release_date`), `modelo_monetizacao` (classificação entre Gratuito e Pago), `total_avaliacoes` (soma de avaliações positivas e negativas), `taxa_aprovacao_pct` (percentual de avaliações positivas) e `faixa_achievements` (classificação da quantidade de conquistas em 6 faixas: 0, 1–10, 11–25, 26–50, 51–100 e 100+).
 2. **`steam_generos_silver`** - onde o array de gêneros de cada jogo é explodido em linhas individuais (uma linha por par jogo-gênero), com tratamento de dois formatos possíveis (string simples e objeto JSON) e remoção de gêneros vazios.
 
 ### 4.3 Gold
@@ -90,7 +90,7 @@ Os seguintes tratamentos foram aplicados ao longo do pipeline:
 - Remoção de jogos sem avaliações na Silver.
 - Remoção de jogos sem data de lançamento na Silver.
 - Remoção de aplicativos de software do catálogo na Silver, filtrando gêneros como Audio Production, Video Production, Utilities, Animation & Modeling, Photo Editing, Design & Illustration, Web Publishing, Software Training e Game Development.
-- Remoção do gênero Free To Play na Silver, pois ele está errado no dataset
+- Remoção do gênero Free To Play na Silver, pois ele está errado no dataset.
 - Classificação unificada de modelo de monetização (Gratuito/Pago) para resolver inconsistências entre as colunas de preço e status.
 - Parsing e explosão do array JSON de gêneros com tratamento de múltiplos formatos.
 - Remoção de gêneros vazios ou nulos na tabela normalizada.
@@ -138,52 +138,38 @@ A tabela `steam_gold_achievements_engajamento` (Gold Q4) agregou métricas de en
 
 **Quais são os títulos com as maiores médias de tempo de jogo (average playtime)?**
 
-A tabela `steam_gold_top_playtime_titles` (Gold Q6) listou os 20 jogos com maior tempo médio de jogo.
+A tabela `steam_gold_top_playtime_titles` (Gold Q5) listou os 20 jogos com maior tempo médio de jogo.
 
-**Resposta:** Os títulos com maior tempo médio de jogo são predominantemente visual novels asiáticos, simuladores de gestão e jogos de nicho. O primeiro colocado, *Letters From a Rainy Day*, apresenta uma média de quase **6000 horas** de jogo (359665 minutos). O top 20 inclui também títulos como *Franchise Hockey Manager 9* (152 mil min), *Sim Empire* (91 mil min) e *Football Manager 2024* (29 mil min). A maioria dos títulos é paga, com taxas de aprovação variadas (45% a 98%).
+**Resposta:** Os títulos com maior tempo médio de jogo são: O primeiro colocado, **Letters From a Rainy Day -Oceans and Lace-**, apresentando uma média de 359665 minutos (aproximadamente 5994 horas). O segundo colocado, **爱人 Lover**, com 322983 minutos (aproximadamente 5383 horas). O terceiro colocado, **秘密舞会**, com 189436 minutos (aproximadamente 3157 horas). Um detalhe é que o único jogo gratuito do top 20 é o **Football Manager 2024**, que aparece na 20ª posição com 29196 minutos (aproximadamente 487 horas).
 
 ### 6.6 Pergunta 6
 
 **Quais gêneros concentram as maiores médias de horas jogadas por usuário?**
 
-A tabela `steam_gold_playtime_genero` (Gold Q7) agregou a quantidade média de horas jogadas por gênero (gêneros com 50+ jogos).
+A tabela `steam_gold_playtime_genero` (Gold Q6) agregou a quantidade média de horas jogadas por gênero (gêneros com 50+ jogos).
 
-**Resposta:** As maiores médias de horas jogadas por usuário concentram-se em **Massively Multiplayer** (271 min), **RPG** (226 min) e **Sports** (222 min) - gêneros que naturalmente favorecem sessões longas e replayabilidade. Simulation (196 min) e Strategy (141 min) também aparecem com destaque. Gêneros casuais e de alta rotatividade como Indie (75 min) e Action (61 min) ficam nas últimas posições.
+**Resposta:** As maiores médias de horas jogadas por usuário concentram-se em **Massively Multiplayer** (271 min), **RPG** (226 min) e **Sports** (222 min) - gêneros que naturalmente favorecem sessões longas e rejogabilidade. Vale destacar que os gêneros "Massively Multiplayer" (1127 jogos) e "Sports" (3485 jogos) possuem um número total de títulos significativamente menor em comparação a gêneros como "RPG" (14144 jogos), porém não foram removidos da análise por atenderem ao filtro mínimo de 50 jogos. Além disso, esses gêneros se destacam por terem uma quantidade média de avaliações superior à maioria, com "Massively Multiplayer" registrando uma média de 5930,66 avaliações por jogo, sendo a maior média de avaliações entre todos os gêneros.
 
 ### 6.7 Pergunta 7
 
 **Como evoluiu o preço médio dos jogos ao longo dos anos?**
 
-A tabela `steam_gold_evolucao_precos` (Gold Q8) agregou preço médio, mediana e desvio-padrão por ano de lançamento (jogos pagos, 2012–2026).
+A tabela `steam_gold_evolucao_precos` (Gold Q7) agregou preço médio, mediana e desvio-padrão por ano de lançamento (jogos pagos, 2012–2026).
 
-**Resposta:** O preço médio dos jogos pagos caiu de **US$ 12,08 em 2013** para **US$ 8,17 em 2018** - uma redução de ~32%. Essa queda coincide com a explosão do volume de lançamentos no mesmo período, sugerindo que a popularização das ferramentas de desenvolvimento e a democratização da publicação trouxeram muitos jogos indie de baixo preço ao catálogo. A partir de 2018, o preço médio estabilizou-se na faixa de **US$ 8,17 a US$ 9,70**, com a mediana fixada em US$ 4,99–5,99. O desvio-padrão cresceu ao longo dos anos (de ~7 para ~15), indicando maior dispersão de preços - o catálogo tornou-se mais heterogêneo, com coexistência de jogos muito baratos e títulos premium caros.
+**Resposta:** O preço médio dos jogos pagos caiu de 12,08 dólares em 2013 para 8,17 dólares em 2018. Essa queda coincide com a explosão do volume de lançamentos no mesmo período, sugerindo que a popularização das ferramentas de desenvolvimento e a democratização da publicação trouxeram muitos jogos indie de baixo preço ao catálogo. A partir de 2018, o preço médio estabilizou-se na faixa de 8,17 a 9,70 dólares, com a mediana estando entre 4,99 e 5,99 dólares. O desvio padrão cresceu ao longo dos anos, indicando maior dispersão de preços, mostrando que a plataforma da steam tornou-se mais heterogênea.
 
 ### 6.8 Discussão dos resultados
 
 **Síntese geral:**
 
-A análise do catálogo da Steam revela um mercado em franca expansão, com o volume de lançamentos crescendo +-39x entre 2012 e 2024. Esse crescimento foi acompanhado por uma redução e posterior estabilização do preço médio (+-US$ 9), refletindo a popularização de jogos indie acessíveis.
+A análise do catálogo da Steam revela um mercado em franca expansão, com o volume de lançamentos crescendo muito entre 2012 e 2024. Esse crescimento foi acompanhado por uma redução e posterior estabilização do preço médio (aproximadamente 9 dólares), refletindo a popularização de jogos indie acessíveis.
 
-Quanto ao engajamento, os dados mostram uma relação robusta entre conquistas (achievements) e métricas de retenção: jogos com mais conquistas têm a quantidade média de horas jogadas maior, mais recomendações e mais avaliações. Isso sugere que as conquistas funcionam como um proxy para jogos maiores e mais produzidos, não uma causa linear isolada.
+Quanto ao engajamento, os dados mostram uma relação robusta entre conquistas (achievements) e métricas de retenção: jogos com mais conquistas têm a quantia média de horas jogadas maior, mais recomendações e mais avaliações. Isso sugere que as conquistas funcionam como um indicador indireto de jogos maiores e mais produzidos, não uma causa linear isolada.
 
 Os gêneros com maior quantidade de horas jogadas são Massively Multiplayer, RPG e Sports, confirmando a expectativa de que jogos com progressão contínua e multiplayer engajam por mais tempo.
 
 ## 7. Autoavaliação
 
-### 7.1 Objetivos atingidos
+Consegui responder as 7 perguntas, porém com algumas dificuldades durante o desenvolvimento do projeto, como por exemplo descobrindo que os dados do dataset estão incompletos para o ano de 2026. Também houve a identificação de gêneros vazios (`LENGTH = 0`) após a explosão do array, que geravam linhas inválidas na tabela `steam_generos_silver` e precisaram ser filtrados. Além disso, foi necessária a identificação e filtragem de aplicativos de software no catálogo da Steam (Audio Production, Video Production, Utilities, etc.), que exigiu análise dos gêneros para distinguir aplicativos de jogos e adicioná-los como filtro na camada Silver. Por fim, a identificação e remoção do gênero Free To Play, que nestes casos não estava sendo tratados como um gênero de jogo, e que gerava inconsistência nos resultados dos jogos pagos.
 
-O estudo conseguiu responder as 7 perguntas com clareza, utilizando uma arquitetura de medalhão. A principal descoberta foi a relação positiva entre conquistas e engajamento: jogos com mais conquistas têm uma hora de jogo médio maior, mais recomendações e mais avaliações, sugerindo que as conquistas funcionam como um mecanismo efetivo de retenção. Além disso, observou-se um boom da Steam a partir de 2012/2013, com o volume de lançamentos crescendo aproxidamente 39 vezes até 2024, impulsionado pela popularização das ferramentas de desenvolvimento e da publicação acessível na plataforma.
-
-### 7.2 Dificuldades
-
-- Tratamento do array JSON de gêneros, que exigiu `LATERAL VIEW EXPLODE` com `from_json` e `COALESCE` para lidar com dois formatos diferentes (string simples e objeto JSON com `description`).
-- Identificação de gêneros vazios (`LENGTH = 0`) após a explosão do array, que geravam linhas inválidas na tabela `steam_generos_silver` e precisaram ser filtrados.
-- Identificação e filtragem de aplicativos de software no catálogo da Steam (Audio Production, Video Production, Utilities, etc.), que exigiu análise dos gêneros para distinguir aplicativos de jogos e adicioná-los como filtro na camada Silver.
-- Identificação e remoção do gênero Free To Play, que é um modelo de monetização e não um gênero de jogo, e cuja presença em jogos pagos gerava inconsistência nos resultados.
-- Dados de 2026 como ano parcial, que exige cuidado na interpretação das tendências.
-
-### 7.3 Trabalhos futuros
-
-- Cruzar os dados com a base complementar de avaliações textuais para análises sobre avaliações
-- Implementar visualizações de dashboards a partir das tabelas Gold.
-- Analisar de forma aprofundada sobre o boom da steam a partir do ano de 2012/2013
+Como continuidade deste trabalho, pretende-se cruzar os dados com a base complementar de avaliações textuais para análises mais profundas sobre avaliações, implementar visualizações de dashboards a partir das tabelas Gold e analisar de forma aprofundada o boom da Steam a partir do ano de 2012/2013 que foi observado na pergunta 3.
