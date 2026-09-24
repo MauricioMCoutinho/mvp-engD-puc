@@ -81,37 +81,21 @@ A camada Gold cria uma tabela agregada para cada pergunta de negócio, todas con
 
 ## 5. Qualidade de Dados
 
-### 5.1 Completude
+### 5.1 Outliers
 
-Na camada Bronze, o dataset original do Kaggle pode conter registros com campos nulos, especialmente em `release_date`, `genres` e `achievements`. A camada Silver aplica filtros que garantem completude mínima: apenas jogos com `release_date IS NOT NULL` são mantidos. Na tabela de gêneros, registros com `genres IS NULL` ou gêneros vazios (`LENGTH = 0`) são removidos.
+O dataset contém outliers notáveis: jogos com quantidade média de horas jogadas extremamente altas e com preços extremamente altos (exemplo um jogo que custa 999 dólares). Esses valores não foram removidos. A presença de software não-jogo no catálogo (VEGAS Pro, Boom 3D) também distorce métricas de quantidade de horas jogadas. Nas agregações da camada Gold, o filtro de gêneros com pelo menos 50 jogos mitiga o efeito de categorias com poucos títulos.
 
-### 5.2 Consistência
-
-A coluna `price_status` e a coluna `price` podem apresentar inconsistências (ex.: `price = 0` sem `price_status = 'free'`). A Silver resolve isso com uma regra unificada: `CASE WHEN price = 0 OR LOWER(price_status) = 'free' THEN 'Gratuito' ELSE 'Pago' END`. O array de gêneros é tratado em dois formatos possíveis (string simples e objeto JSON) com `COALESCE` entre `get_json_object` e o valor bruto, garantindo consistência na extração.
-
-### 5.3 Unicidade
-
-A tabela Bronze `steam_games` possui `app_id` como identificador único de cada jogo. A tabela Silver mantém essa granularidade (uma linha por `app_id`). A tabela de gêneros normalizada `steam_generos_silver` respeita a granularidade de um par (jogo, gênero), sem duplicação de combinações.
-
-### 5.4 Acurácia
-
-A taxa de aprovação (`taxa_aprovacao_pct`) é calculada como `positive * 100.0 / (positive + negative)`, com `NULLIF` para evitar divisão por zero. O filtro de jogos com pelo menos uma avaliação garante que a taxa seja sempre baseada em dados reais. Os anos de lançamento são extraídos diretamente de `release_date` com `YEAR()`, preservando a acurácia temporal.
-
-### 5.5 Outliers
-
-O dataset contém outliers notáveis: jogos com `average_playtime_forever` extremamente alto (ex.: 359.665 minutos - ~6.000 horas) e preços máximos atípicos (ex.: US$ 999,98 em 2019 e 2023). Esses valores não foram removidos, mas merece atenção na interpretação dos resultados. A presença de software não-jogo no catálogo (VEGAS Pro, Boom 3D) também distorce métricas de quantidade de horas jogadas. Nas agregações de Gold, o filtro `HAVING COUNT(*) >= 50` em gêneros mitiga o efeito de categorias com poucos títulos.
-
-### 5.6 Tratamentos realizados
+### 5.2 Tratamentos realizados
 
 Os seguintes tratamentos foram aplicados ao longo do pipeline:
 
-- Remoção de jogos sem avaliações (`(positive + negative) > 0`) na Silver.
-- Remoção de jogos sem data de lançamento (`release_date IS NOT NULL`) na Silver.
-- Classificação unificada de modelo de monetização (Gratuito/Pago) para resolver inconsistências entre `price` e `price_status`.
+- Remoção de jogos sem avaliações na Silver.
+- Remoção de jogos sem data de lançamento na Silver.
+- Classificação unificada de modelo de monetização (Gratuito/Pago) para resolver inconsistências entre as colunas de preço e status.
 - Parsing e explosão do array JSON de gêneros com tratamento de múltiplos formatos.
 - Remoção de gêneros vazios ou nulos na tabela normalizada.
 - Filtro de gêneros com pelo menos 50 jogos em agregações da Gold para evitar viés de pequenas amostras.
-- Exclusão de jogos gratuitos (price = 0) em análises de preço médio (Q2 e Q8) para não distorcer a média.
+- Exclusão de jogos gratuitos em análises de preço médio para não distorcer a média.
 - Restrição temporal (2012–2026) na análise de evolução de preços.
 
 ## 6. Análise de Dados
