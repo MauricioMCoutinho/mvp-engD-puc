@@ -6,12 +6,13 @@
 
 ### 1.1 Problema
 
-O mercado global de distribuição digital de jogos eletrônicos para computadores é amplamente liderado pela plataforma Steam, caracterizando-se por um catálogo massivo em constante expansão, grande pulverização de gêneros e volatilidade de preços. Em virtude do elevado volume de títulos publicados anualmente, produtores e analistas enfrentam dificuldades para identificar quais atributos de catálogo (precificação, engajamento e recursos técnicos) realmente favorecem a retenção de público e a aprovação crítica dos usuários.
+O mercado de distribuição de jogos digitais para computadores é liderado pela plataforma da Steam, que possui mais de 136 mil títulos em sua plataforma. Essa escala torna impossível a análise manual do catálogo. A plataforma também possui aplicativos de software misturados aos jogos, gêneros inconsistentes e uma grande quantidade de preços diferentes entre os jogos. Por conta disso, produtores e analistas acabam enfrentando dificuldades para identificar o que realmente favorece a retenção de público e a aprovação crítica dos usuários.
 
 ### 1.2 Objetivo
 
-Conduzir um processo estruturado de análise de dados sobre o catálogo de jogos da plataforma Steam, identificando tendências de precificação, recepção dos consumidores, retenção de jogadores e impacto de recursos adicionais. O estudo busca responder à seguinte pergunta central, quais os padrões de consumo da plataforma steam ao longo dos anos?
+O objetivo do trabalho é conduzir um processo de analises do catálogo de jogos da plataforma Steam, identificando médias de preco, recepção e retenção de jogadores e o impacto do gêneros do jogos. O estudo busca responder à seguinte pergunta central: quais os padrões de consumo da plataforma Steam ao longo dos anos?
 
+Para isso, o projeto foi planejado em etapas que seguem a arquitetura Medalhão, garantindo rastreabilidade, qualidade progressiva e separação clara entre dados brutos, dados tratados e agregações analíticas. Inicialmente, os dados brutos são ingeridos na plataforma Databricks na camada Bronze. Em seguida, na camada Silver, são aplicados os filtros de qualidade, a normalização de gêneros e a derivação de colunas analíticas. Posteriormente, na camada Gold, os dados são agregados em 7 tabelas, cada uma respondendo a uma pergunta de negócio específica.
 ### 1.3 Perguntas do negócio
 
 1. Existe diferença de aceitação entre jogos gratuitos e pagos?
@@ -53,6 +54,8 @@ O modelo parte da tabela `steam_games` na Bronze e dá origem a duas tabelas na 
 Na camada Gold, cada tabela é construída a partir das Silvers, sem joins complexos entre si. Cada uma é independente e atende a uma das perguntas propostas.
 
 ## 4. Pipeline de Dados
+
+Todos os scripts SQL que compõem a pipeline estão disponíveis no notebook `MVP` no repositório do projeto, que executa as etapas de Bronze, Silver e Gold de forma sequencial.
 
 ### 4.1 Bronze
 
@@ -170,6 +173,6 @@ Os gêneros com maior quantidade de horas jogadas são Massively Multiplayer, RP
 
 ## 7. Autoavaliação
 
-Consegui responder as 7 perguntas, porém com algumas dificuldades durante o desenvolvimento do projeto, como por exemplo descobrindo que os dados do dataset estão incompletos para o ano de 2026. Também houve a identificação de gêneros vazios (`LENGTH = 0`) após a explosão do array, que geravam linhas inválidas na tabela `steam_generos_silver` e precisaram ser filtrados. Além disso, foi necessária a identificação e filtragem de aplicativos de software no catálogo da Steam (Audio Production, Video Production, Utilities, etc.), que exigiu análise dos gêneros para distinguir aplicativos de jogos e adicioná-los como filtro na camada Silver. Por fim, a identificação e remoção do gênero Free To Play, que nestes casos não estava sendo tratados como um gênero de jogo, e que gerava inconsistência nos resultados dos jogos pagos.
+Consegui responder as 7 perguntas e atingir os objetivos traçados no início do trabalho. Com o trabalho consegui identificar as médias de preço por gênero e como ela evoluiu ao longo dos anos, além da taxas de aprovações dos jogadores entre jogos gratuitos e pagos, a retenção de jogadores a partir do tempo médio de jogo e o impacto dos gêneros e conquistas no engajamento. Porém, tive algumas dificuldades durante o desenvolvimento do projeto, como por exemplo, descobri que os dados do dataset estavam incompletos para o ano de 2026. Também houve a identificação de gêneros vazios (`LENGTH = 0`) após a explosão do array, que estavam gerando linhas inválidas na tabela `steam_generos_silver` e precisaram ser filtrados. Além disso, descobri que a maior parte do top 20 jogos mais utilizados da steam eram na verdade aplicativos de software, só que meu objetivo era mais sobre os jogos, e por isso retirei eles, porém tive que ir analisando os gêneros para diferenciar os softwares, dos jogos e assim criar um filtro na camada Silver. Também tive um problema em perceber que tinha um gênero chamado "Free To Play", em que só após abrir a steam, percebi que alguns eram gratuitos, outros eram demos(demonstrações), e acabavam aparecendo na parte de jogos pagos gerando inconsistencias, e por conta disso eu acabei removendo eles no filtro.
 
-Como continuidade deste trabalho, pretende-se cruzar os dados com a base complementar de avaliações textuais para análises mais profundas sobre avaliações, implementar visualizações de dashboards a partir das tabelas Gold e analisar de forma aprofundada o boom da Steam a partir do ano de 2012/2013 que foi observado na pergunta 3.
+Como um projeto futuro para este trabalho, eu pretendo cruzar os dados com a base complementar de avaliações textuais que eu citei no começo do trabalho no ponto 1.4 para análises mais profundas das avaliações dos usuários. Também penso em implementar a vizualização de dashboards das tabelas Gold e analisar de forma mais aprofundada o boom da Steam a partir do ano de 2012/2013 que foi observado na pergunta 3.
